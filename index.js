@@ -1,6 +1,9 @@
 require('dotenv').config();
 
 const express = require('express');
+const AWS = require('aws-sdk');
+const multer = require('multer');
+const multerS3 = require('multer-s3');
 const cors = require('cors');
 const http = require('http');
 const mysql = require("mysql");
@@ -27,6 +30,24 @@ wss.on('connection', (ws) => {
                 client.send(message.toString());
             }
         })
+    })
+})
+
+const s3 = new AWS.S3({
+    accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+    region: process.env.AWS_REGION,
+})
+
+const upload = multer({
+    storage: multerS3({
+        s3: s3,
+        bucket: process.env.AWS_BUCKET_NAME,
+        contentType: multerS3.AUTO_CONTENT_TYPE,
+        acl: "public-read",
+        key: (req, file, cb) => {
+            cb(null, Date.now().toString() + '-' + file.originalname);
+        }
     })
 })
 
@@ -189,6 +210,32 @@ app.put('/updateMenuAvailability', (req, res) => {
     })
 })
 
+app.get('/getOptionAvailability', (req, res) => {
+    db.query(`
+        SELECT option_id, option_value, availability
+        FROM option_availability
+    `, (err, result) => {
+        if (err) throw err;
+        var data = JSON.parse(JSON.stringify(result));
+        res.send(data)
+    })
+})
+
+app.put('/updateOptionAvailability', (req, res) => {
+    const { option_id, availability } = req.body;
+    db.query(`
+        UPDATE option_availability
+        SET availability = ?
+        WHERE option_id = ?
+    `, [availability, option_id], (err, result) => {
+        if (err) {
+            res.status(500).send("Error updating option availability");
+        } else {
+            res.send('option availability updated')
+        }
+    })
+})
+
 // get queue
 app.get('/getQueue', (req, res) => {
     db.query(
@@ -320,6 +367,7 @@ app.get('/getOrderById/:order_id', (req, res) => {
         orderStatus: '',
         orderMenu: [
             {
+                menu_id: '',
                 menu_name: '',
                 meat: '',
                 spicy: '',
@@ -344,7 +392,7 @@ app.get('/getOrderById/:order_id', (req, res) => {
     Promise.all([
         queryDatabase(`SELECT order_status FROM orders WHERE order_id = ?`, [order_id]),
         queryDatabase(`
-            SELECT menu_name, meat, spicy, extra, egg, order_menu_status
+            SELECT menu_id, menu_name, meat, spicy, extra, egg, order_menu_status
             FROM order_menus
             INNER JOIN menus
             ON order_menus.menu_id = menus.menu_id
@@ -592,6 +640,22 @@ app.put('/updateIngredientsUsed', (req, res) => {
     })
 })
 
+// update store state
+app.put('/updateStoreState', (req, res) => {
+    const { state } = req.body
+    db.query(`
+        UPDATE store_state
+        SET is_open = ?
+        WHERE id = 1;
+    `, [state], (err, result) => {
+        if (err) {
+            console.error('Error updating store state:', err);
+            return res.status(500).json({ success: false, message: 'Internal Server Error' });
+        }
+        res.status(200).json({ success: true, message: 'Store state updated successfully' });
+    })
+})
+
 // get today sales value
 app.get('/getTodaySales', (req, res) => {
     const query = `
@@ -663,6 +727,7 @@ app.get('/getBestSellingMenu', (req, res) => {
     })
 })
 
+// get ingredients used
 app.get('/getIngredientsUsed', (req, res) => {
     const date_used = new Date().toISOString().slice(0, 10);
     db.query(`
@@ -682,7 +747,62 @@ app.get('/getIngredientsUsed', (req, res) => {
     })
 })
 
+app.get('/getStoreState', (req, res) => {
+    db.query(`
+        SELECT is_open FROM store_state WHERE id = 1
+    `, (err, result) => {
+        if(err) {
+            console.error('Error fetching store state:', err);
+            res.status(500).send("Error fetching store state");
+        } else {
+            var data = JSON.parse(JSON.stringify(result));
+            res.status(200).send(data)
+        }
+    })
+})
+
+app.get('/getPayments', (req, res) => {
+    db.query(`
+        SELECT * FROM payments
+    `, (err, result) => {
+        if(err) {
+            console.error('Error fetching payments:', err);
+            res.status(500).send("Error fetching payments");
+        } else {
+            var data = JSON.parse(JSON.stringify(result));
+            res.status(200).send(data)
+        }
+    })
+})
+
+app.post('/addPayment', (req, res) => {
+    const { order_id, payment_picture, total_price} = req.body;
+    
+    db.query(`
+        INSERT INTO payments (order_id, payment_picture, date_time, total_price)
+        VALUES (?, ?, NOW(), ?)
+    `, [order_id, payment_picture, total_price], (err, result) => {
+        if (err) {
+            console.error('Error adding payment:', err);
+            return res.status(500).json({ success: false, message: 'Internal Server Error' });
+        }
+        db.query(`
+            UPDATE orders SET paid = 1 WHERE order_id = ?
+        `, [order_id], (err, result) => {
+            if (err) {
+                console.error('Error updating paid status:', err);
+                return res.status(500).json({ success: false, message: 'Internal Server Error' });
+            }
+            return res.status(200).json({ success: true, message: 'Payment added successfully and paid status updated' });
+        })
+    })
+})
+
+// AWS S3 upload
+app.post('/upload', upload.single('image'), (req, res) => {
+    res.status(200).json({ message: 'File uploaded successfully', fileUrl: req.file.location});
+})
 
 server.listen(5000, () => {
-    console.log('Application is running on port 3001');
+    console.log('Application is running on port 5000');
 })
