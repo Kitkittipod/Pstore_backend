@@ -782,11 +782,9 @@ app.post('/addPayment', (req, res) => {
     })
 })
 
-// AWS S3 upload
-app.post('/upload', upload.single('image'), (req, res) => {
-    res.status(200).json({ message: 'File uploaded successfully', fileUrl: req.file.location});
+
+
+
+server.listen(5000, () => {
+    console.log('Application is running on port 5000');
 })
-
-
-app.listen(3000, () => console.log("Server ready on port 3000."));
-module.exports = app;
