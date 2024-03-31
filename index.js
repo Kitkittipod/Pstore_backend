@@ -14,6 +14,7 @@ const app = express();
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
+app.listen(PORT, () => { console.log(`Server is running on port ${PORT}`); });
 app.use(cors())
 app.use(bodyParser.json());
 app.use((req, res, next) => {
@@ -786,6 +787,6 @@ app.post('/upload', upload.single('image'), (req, res) => {
     res.status(200).json({ message: 'File uploaded successfully', fileUrl: req.file.location});
 })
 
-server.listen(5000, () => {
-    console.log('Application is running on port 5000');
+server.listen(3001, () => {
+    console.log('Application is running on port 3001');
 })
