@@ -1,9 +1,8 @@
 require('dotenv').config();
 
 const express = require('express');
-
+const { PutObjectCommand, S3Client } = require('@aws-sdk/client-s3');
 const multer = require('multer');
-const multerS3 = require('multer-s3');
 const cors = require('cors');
 const http = require('http');
 const mysql = require("mysql");
@@ -13,7 +12,6 @@ const WebSocket = require('ws');
 const app = express();
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
-
 
 app.use(cors())
 app.use(bodyParser.json());
@@ -33,6 +31,13 @@ wss.on('connection', (ws) => {
         })
     })
 })
+const upload = multer();
+
+const client = new S3Client({ 
+    region: process.env.AWS_REGION,
+    accesskeyId: process.env.AWS_ACCESS_KEY_ID,
+    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY
+});
 
 
 // db config
@@ -780,6 +785,34 @@ app.post('/addPayment', (req, res) => {
             return res.status(200).json({ success: true, message: 'Payment added successfully and paid status updated' });
         })
     })
+})
+// AWS S3 upload
+app.post('/upload', upload.single("image"), async (req, res) => {
+    try {
+        if (!req.file) {
+            return res.status(400).send("No image file uploaded.");
+        }
+
+        const image = req.file.buffer;
+        const key = Date.now().toString() + '-' + req.file.originalname
+        const contentType = req.file.mimetype;
+
+        const command = new PutObjectCommand({
+            Bucket: process.env.AWS_BUCKET_NAME,
+            Key: key,
+            Body: image,
+            ContentType: contentType,
+        });
+
+        const response = await client.send(command);
+        console.log("Upload successful:", response);
+        const url = `https://${process.env.AWS_BUCKET_NAME}.s3.amazonaws.com/${key}`;
+        res.status(200).json({ success: true, message: 'File uploaded successfully', imageUrl: url });
+
+    } catch (err) {
+        console.error('Error uploading image:', err);
+        return res.status(500).json({ success: false, message: 'File upload failed', error: err.message });
+    }
 })
 
 
