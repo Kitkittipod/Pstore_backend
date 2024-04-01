@@ -331,15 +331,16 @@ app.get('/getOrder', (req, res) => {
 // add order
 app.post('/addOrder', (req, res) => {
     const {menu} = req.body
+    const totalPrice = menu.reduce((total, item) => total + item.price, 0);
     db.query(
-        `INSERT INTO orders (order_status, total_menu, approved_menu, rejected_menu, cooking_menu, finished_menu, paid)
-         VALUES ('pending', ?, 0, 0, 0, 0, false)`, menu.length, (err, result) => {
+        `INSERT INTO orders (order_status, total_price, total_menu, approved_menu, rejected_menu, cooking_menu, finished_menu, paid)
+         VALUES ('pending', ?, ?, 0, 0, 0, 0, false)`, [totalPrice, menu.length], (err, result) => {
             if (err) throw err
             const order_id = result.insertId
             for (let i = 0; i < menu.length; i++) {
                 db.query(
-                    `INSERT INTO order_menus (order_id, menu_id, meat, spicy, extra, egg, optional_text, container, queue_id, order_menu_status)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`, [order_id, menu[i].menu_id, menu[i].meat, menu[i].spicy, menu[i].extra, menu[i].egg, menu[i].optional_text, menu[i].container, null], (err, result) => {
+                    `INSERT INTO order_menus (order_id, menu_id, meat, spicy, extra, egg, optional_text, container, queue_id, order_menu_status, price)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)`, [order_id, menu[i].menu_id, menu[i].meat, menu[i].spicy, menu[i].extra, menu[i].egg, menu[i].optional_text, menu[i].container, null, menu[i].price], (err, result) => {
                     if (err) throw err
                 })
             }
@@ -348,9 +349,8 @@ app.post('/addOrder', (req, res) => {
     )
 })
 
-// get order by id
 app.get('/getOrderById/:order_id', (req, res) => {
-    const order_id = req.params.order_id
+    const order_id = parseInt(req.params.order_id)
     const data = {
         orderId: order_id,
         orderStatus: '',
@@ -381,7 +381,7 @@ app.get('/getOrderById/:order_id', (req, res) => {
     Promise.all([
         queryDatabase(`SELECT order_status FROM orders WHERE order_id = ?`, [order_id]),
         queryDatabase(`
-            SELECT menu_id, menu_name, meat, spicy, extra, egg, order_menu_status
+            SELECT order_menus.menu_id, menu_name, meat, spicy, extra, egg, optional_text, container, order_menu_status
             FROM order_menus
             INNER JOIN menus
             ON order_menus.menu_id = menus.menu_id
@@ -398,6 +398,8 @@ app.get('/getOrderById/:order_id', (req, res) => {
             spicy: item.spicy,
             extra: item.extra,
             egg: item.egg,
+            optionalText: item.optional_text,
+            container: item.container,
             orderMenuStatus: item.order_menu_status
         }))
 
