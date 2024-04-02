@@ -74,21 +74,46 @@ app.post('/addMenu', (req, res) => {
 })
 
 // get all menu
-// app.get('/getMenu', (req, res) => {
-//     db.query("SELECT * FROM menus", (err, result) => {
-//         if (err) throw err;
-//         var data = JSON.parse(JSON.stringify(result));
-//         res.send(data)
-//     })
-//     // res.send("ok")
-// })
+app.get('/getMenu', (req, res) => {
+    db.query("SELECT * FROM menus", (err, result) => {
+        if (err) throw err;
+        var data = JSON.parse(JSON.stringify(result));
+        res.send(data)
+    })
+    // res.send("ok")
+})
 
-// get all menu with optionals
-app.get('/getMenuWithOptionals', (req, res) => {
+// get optional by menu id
+app.get('/getOptionalByMenuId/:menuId', (req, res) => {
+    const menu_id = parseInt(req.params.menuId);
     const data = {
-        menus: []
+        id: menu_id,
+        title: '',
+        price: 0,
+        image: '',
+        options: [
+            {
+                title: 'ประเภทเนื้อสัตว์',
+                required: 1,
+                options: []
+            },
+            {
+                title: 'ระดับความเผ็ด',
+                required: 1,
+                options: []
+            },
+            {
+                title: 'เพิ่มไข่',
+                required: 0,
+                options: []
+            },
+            {
+                title: 'ภาชนะ',
+                required: 1,
+                options: []
+            }
+        ]
     };
-
     const queryDatabase = (sql, params) => {
         return new Promise((resolve, reject) => {
             db.query(sql, params, (err, result) => {
@@ -101,73 +126,43 @@ app.get('/getMenuWithOptionals', (req, res) => {
         });
     };
 
-    queryDatabase('SELECT menu_id, menu_name, menu_picture, price, availability FROM menus')
-    .then(menuResults => {
-        data.menus = menuResults.map(menu => ({
-            id: menu.menu_id,
-            title: menu.menu_name,
-            image: menu.menu_picture,
-            price: Number(menu.price),
-            options: [],
-            availability: menu.availability
+    Promise.all([
+        queryDatabase('SELECT menu_name, menu_picture, price FROM menus WHERE menu_id = ?', menu_id),
+        queryDatabase(`SELECT optional_value, additional_price, availability FROM menu_optionals WHERE menu_id = ? AND optional_type ='meat'`, menu_id),
+        queryDatabase(`SELECT optional_value, additional_price, availability FROM menu_optionals WHERE menu_id = ? AND optional_type ='spicy'`, menu_id),
+        queryDatabase(`SELECT optional_value, additional_price, availability FROM menu_optionals WHERE menu_id = ? AND optional_type ='egg'`, menu_id),
+        queryDatabase(`SELECT optional_value, additional_price, availability FROM menu_optionals WHERE menu_id = ? AND optional_type ='container'`, menu_id)
+    ])
+    .then(([menuResult, meatResult, spicyResult, eggResult, containerResult]) => {
+        data.title = menuResult[0].menu_name;
+        data.image = menuResult[0].menu_picture;
+        data.price = Number(menuResult[0].price);
+
+        data.options.find(opt => opt.title === 'ประเภทเนื้อสัตว์').options = meatResult.map(opt => ({
+            name: opt.optional_value,
+            price: Number(opt.additional_price),
+            availability: opt.availability
         }));
-
-        // Fetch options for each menu based on optional_type
-        const optionsPromises = data.menus.map(menu => {
-            return Promise.all([
-                queryDatabase(`SELECT optional_value, additional_price FROM menu_optionals WHERE menu_id = ? AND optional_type = 'meat'`, menu.id),
-                queryDatabase(`SELECT optional_value, additional_price FROM menu_optionals WHERE menu_id = ? AND optional_type = 'spicy'`, menu.id),
-                queryDatabase(`SELECT optional_value, additional_price FROM menu_optionals WHERE menu_id = ? AND optional_type = 'egg'`, menu.id),
-                queryDatabase(`SELECT optional_value, additional_price FROM menu_optionals WHERE menu_id = ? AND optional_type = 'container'`, menu.id)
-            ]);
-        });
-
-        return Promise.all(optionsPromises);
-    })
-    .then(optionsResults => {
-        optionsResults.forEach((options, index) => {
-            const [meatOptions, spicyOptions, eggOptions, containerOptions] = options;
-            
-            data.menus[index].options.push({
-                title: 'ประเภทเนื้อสัตว์',
-                required: 1,
-                options: meatOptions.map(option => ({
-                    name: option.optional_value,
-                    price: Number(option.additional_price)
-                }))
-            });
-
-            data.menus[index].options.push({
-                title: 'ระดับความเผ็ด',
-                required: 1,
-                options: spicyOptions.map(option => ({
-                    name: option.optional_value,
-                    price: Number(option.additional_price)
-                }))
-            });
-
-            data.menus[index].options.push({
-                title: 'เพิ่มไข่',
-                required: 0,
-                options: eggOptions.map(option => ({
-                    name: option.optional_value,
-                    price: Number(option.additional_price)
-                }))
-            });
-
-            data.menus[index].options.push({
-                title: 'ภาชนะ',
-                required: 1,
-                options: containerOptions.map(option => ({
-                    name: option.optional_value,
-                    price: Number(option.additional_price)
-                }))
-            });
-        });
+        data.options.find(opt => opt.title === 'ระดับความเผ็ด').options = spicyResult.map(opt => ({
+            name: opt.optional_value,
+            price: Number(opt.additional_price),
+            availability: opt.availability
+        }));
+        data.options.find(opt => opt.title === 'เพิ่มไข่').options = eggResult.map(opt => ({
+            name: opt.optional_value,
+            price: Number(opt.additional_price),
+            availability: opt.availability
+        }));
+        data.options.find(opt => opt.title === 'ภาชนะ').options = containerResult.map(opt => ({
+            name: opt.optional_value,
+            price: Number(opt.additional_price),
+            availability: opt.availability
+        }));
 
         res.send(data);
     })
     .catch(err => {
+        // Handle errors here
         console.error(err);
         res.status(500).send('Internal Server Error');
     });
@@ -329,31 +324,49 @@ app.get('/getOrder', (req, res) => {
 })
 
 // add order
-app.post('/addOrder', (req, res) => {
-    const {menu} = req.body
-    const totalPrice = menu.reduce((total, item) => total + item.price, 0);
-    db.query(
-        `INSERT INTO orders (order_status, total_price, total_menu, approved_menu, rejected_menu, cooking_menu, finished_menu, paid)
-         VALUES ('pending', ?, ?, 0, 0, 0, 0, false)`, [totalPrice, menu.length], (err, result) => {
-            if (err) throw err
-            const order_id = result.insertId
-            for (let i = 0; i < menu.length; i++) {
+app.post('/addOrder', async (req, res) => {
+    try {
+        const {menu} = req.body
+        const totalPrice = menu.reduce((total, item) => total + item.price, 0);
+
+        const orderInsertResult = await new Promise((resolve, reject) => {
+            db.query(
+                `INSERT INTO orders (order_status, total_price, total_menu, approved_menu, rejected_menu, cooking_menu, finished_menu, paid)
+                 VALUES ('pending', ?, ?, 0, 0, 0, 0, false)`, [totalPrice, menu.length], (err, result) => {
+                    if (err) reject(err)
+                    resolve(result.insertId)
+                }
+            )
+        })
+
+        const order_id = orderInsertResult.insertId;
+        for (let i = 0; i < menu.length; i++) {
+            await new Promise((resolve, reject) => {
                 db.query(
                     `INSERT INTO order_menus (order_id, menu_id, meat, spicy, extra, egg, optional_text, container, queue_id, order_menu_status, price)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)`, [order_id, menu[i].menu_id, menu[i].meat, menu[i].spicy, menu[i].extra, menu[i].egg, menu[i].optional_text, menu[i].container, null, menu[i].price], (err, result) => {
-                    if (err) throw err
-                })
-            }
-            res.send({ order_id: order_id })
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)`,
+                    [order_id, menu[i].menu_id, menu[i].meat, menu[i].spicy, menu[i].extra, menu[i].egg, menu[i].optional_text, menu[i].container, null, menu[i].price],
+                    (err, result) => {
+                        if (err) reject(err);
+                        resolve(result);
+                    }
+                )
+            })
         }
-    )
+        res.send({ order_id: order_id});
+    } catch (error) {
+        console.error('Error adding order:', error);
+        res.status(500).json({ success: false, message: 'Internal Server Error'});
+    }
 })
 
+// get order by id
 app.get('/getOrderById/:order_id', (req, res) => {
     const order_id = parseInt(req.params.order_id)
     const data = {
         orderId: order_id,
         orderStatus: '',
+        totalPrice: 0,
         orderMenu: [
             {
                 menu_id: '',
@@ -362,7 +375,10 @@ app.get('/getOrderById/:order_id', (req, res) => {
                 spicy: '',
                 extra: '',
                 egg: '',
+                optional_text: '',
+                container: '',
                 orderMenuStatus: '',
+                price: 0
             }
         ]
     }
@@ -379,9 +395,9 @@ app.get('/getOrderById/:order_id', (req, res) => {
     }
 
     Promise.all([
-        queryDatabase(`SELECT order_status FROM orders WHERE order_id = ?`, [order_id]),
+        queryDatabase(`SELECT order_status, total_price FROM orders WHERE order_id = ?`, [order_id]),
         queryDatabase(`
-            SELECT order_menus.menu_id, menu_name, meat, spicy, extra, egg, optional_text, container, order_menu_status
+            SELECT order_menus.menu_id, menu_name, meat, spicy, extra, egg, optional_text, container, order_menu_status, order_menus.price
             FROM order_menus
             INNER JOIN menus
             ON order_menus.menu_id = menus.menu_id
@@ -390,9 +406,11 @@ app.get('/getOrderById/:order_id', (req, res) => {
     .then(([orderResult, menuResult]) => {
         if (orderResult.length > 0) {
             data.orderStatus = orderResult[0].order_status;
+            data.totalPrice = orderResult[0].total_price;
         }
 
         data.orderMenu = menuResult.map(item => ({
+            menu_id: item.menu_id,
             menu_name: item.menu_name,
             meat: item.meat,
             spicy: item.spicy,
@@ -400,7 +418,8 @@ app.get('/getOrderById/:order_id', (req, res) => {
             egg: item.egg,
             optionalText: item.optional_text,
             container: item.container,
-            orderMenuStatus: item.order_menu_status
+            orderMenuStatus: item.order_menu_status,
+            price: item.price
         }))
 
         res.status(200).json(data);
@@ -788,6 +807,7 @@ app.post('/addPayment', (req, res) => {
         })
     })
 })
+
 // AWS S3 upload
 app.post('/upload', upload.single("image"), async (req, res) => {
     try {
